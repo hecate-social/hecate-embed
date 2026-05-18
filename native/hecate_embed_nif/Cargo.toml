@@ -1,0 +1,23 @@
+[package]
+name    = "hecate_embed_nif"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rustler NIF backing hecate_embed — local sentence embeddings"
+
+[lib]
+name       = "hecate_embed_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.34"
+
+# Production build flips this on. Scaffold uses a deterministic
+# hash-based stub embedder so the rest of the stack can integrate
+# before the real ONNX runtime is in tree.
+#
+# fastembed = { version = "4", optional = true }
+
+[features]
+default = []
+# real-embed = ["dep:fastembed"]

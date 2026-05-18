@@ -1,0 +1,24 @@
+_build/
+_checkouts/
+.rebar3/
+erl_crash.dump
+rebar3.crashdump
+
+# Rust / Cargo
+native/**/target/
+native/**/Cargo.lock
+
+# NIF artefacts
+priv/lib/*.so
+priv/lib/*.dylib
+priv/lib/*.dll
+
+# Downloaded ONNX models — fetched by scripts/fetch-model.sh
+priv/models/*.onnx
+priv/models/*.bin
+priv/models/tokenizer.json
+
+# Editor
+.idea/
+*.swp
+.DS_Store

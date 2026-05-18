@@ -1,0 +1,22 @@
+{application, hecate_embed, [
+    {description, "Local multilingual sentence embeddings (Rustler NIF)"},
+    {vsn, "0.1.0"},
+    {registered, [hecate_embed_sup, hecate_embed_model_sup]},
+    {mod, {hecate_embed_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        rustler
+    ]},
+    {env, [
+        {default_model_id, <<"intfloat/multilingual-e5-small">>},
+        {default_dim, 384},
+        {model_dir, "priv/models"}
+    ]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, [
+        {"Codeberg", "https://codeberg.org/hecate-social/hecate-embed"}
+    ]}
+]}.
