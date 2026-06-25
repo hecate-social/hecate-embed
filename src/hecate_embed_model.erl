@@ -1,7 +1,16 @@
 %%% @doc gen_server holding one loaded embedding model.
 %%%
-%%% Owns the NIF resource (an ONNX session). Mediates inference calls;
-%%% the NIF itself is dirty-scheduler-safe for batches.
+%%% Two backends:
+%%%
+%%%   nif    — Rustler NIF over fastembed-rs (production target).
+%%%            Loads an ONNX session into a NIF resource handle.
+%%%
+%%%   ollama — HTTP POST to a local Ollama daemon's /api/embeddings.
+%%%            No NIF, no Rust toolchain needed. Picked when fastembed-rs
+%%%            isn't built yet, or when a different model is wanted.
+%%%
+%%% Backend is set per-model via `Opts#{backend => nif | ollama}'.
+%%% Defaults to the `backend' env (which defaults to `nif').
 -module(hecate_embed_model).
 -behaviour(gen_server).
 
@@ -11,16 +20,19 @@
     embed/2,
     embed_many/2,
     dim/1,
-    model_id/1
+    model_id/1,
+    backend/1
 ]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -record(state, {
-    name      :: atom(),
-    model_id  :: binary(),
-    dim       :: pos_integer(),
-    handle    :: reference()
+    name       :: atom(),
+    model_id   :: binary(),
+    dim        :: pos_integer(),
+    backend    :: nif | ollama,
+    handle     :: reference() | undefined,
+    ollama_url :: string() | undefined
 }).
 
 start_link(Name, Opts) when is_atom(Name), is_map(Opts) ->
@@ -28,30 +40,50 @@ start_link(Name, Opts) when is_atom(Name), is_map(Opts) ->
 
 stop(Ref) -> gen_server:stop(Ref).
 
-embed(Ref, Text) -> gen_server:call(Ref, {embed, Text}).
-embed_many(Ref, Texts) -> gen_server:call(Ref, {embed_many, Texts}, 60_000).
+embed(Ref, Text) -> gen_server:call(Ref, {embed, Text}, 60_000).
+embed_many(Ref, Texts) -> gen_server:call(Ref, {embed_many, Texts}, 120_000).
 dim(Ref) -> gen_server:call(Ref, dim).
 model_id(Ref) -> gen_server:call(Ref, model_id).
+backend(Ref) -> gen_server:call(Ref, backend).
 
 init({Name, Opts}) ->
     ModelId = maps:get(model_id, Opts, default_model_id()),
     Dim     = maps:get(dim,      Opts, default_dim()),
-    ModelDir = maps:get(model_dir, Opts, default_model_dir()),
-    case hecate_embed_nif:load(ModelId, Dim, to_charlist(ModelDir)) of
-        {ok, Handle} ->
-            {ok, #state{name = Name, model_id = ModelId, dim = Dim, handle = Handle}};
-        {error, Reason} ->
-            {stop, {load_failed, Reason}}
-    end.
+    Backend = maps:get(backend,  Opts, default_backend()),
+    init_backend(Backend, Name, ModelId, Dim, Opts).
 
-handle_call({embed, Text}, _From, #state{handle = H} = S) ->
+init_backend(ollama, Name, ModelId, Dim, Opts) ->
+    ok = ensure_inets(),
+    Url = maps:get(ollama_url, Opts, default_ollama_url()),
+    {ok, #state{name = Name, model_id = ModelId, dim = Dim,
+                backend = ollama, ollama_url = Url}};
+init_backend(nif, Name, ModelId, Dim, Opts) ->
+    ModelDir = maps:get(model_dir, Opts, default_model_dir()),
+    init_nif_loaded(hecate_embed_nif:load(ModelId, Dim, to_charlist(ModelDir)),
+                    Name, ModelId, Dim).
+
+init_nif_loaded({ok, Handle}, Name, ModelId, Dim) ->
+    {ok, #state{name = Name, model_id = ModelId, dim = Dim,
+                backend = nif, handle = Handle}};
+init_nif_loaded({error, Reason}, _Name, _ModelId, _Dim) ->
+    {stop, {load_failed, Reason}}.
+
+handle_call({embed, Text}, _From, #state{backend = nif, handle = H} = S) ->
     {reply, hecate_embed_nif:embed(H, Text), S};
-handle_call({embed_many, Texts}, _From, #state{handle = H} = S) ->
+handle_call({embed, Text}, _From, #state{backend = ollama} = S) ->
+    {reply, ollama_embed(S, Text), S};
+
+handle_call({embed_many, Texts}, _From, #state{backend = nif, handle = H} = S) ->
     {reply, hecate_embed_nif:embed_many(H, Texts), S};
+handle_call({embed_many, Texts}, _From, #state{backend = ollama} = S) ->
+    {reply, ollama_embed_many(S, Texts), S};
+
 handle_call(dim, _From, #state{dim = D} = S) ->
     {reply, D, S};
 handle_call(model_id, _From, #state{model_id = M} = S) ->
     {reply, M, S};
+handle_call(backend, _From, #state{backend = B} = S) ->
+    {reply, B, S};
 handle_call(_Other, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -59,7 +91,7 @@ handle_cast(_, S) -> {noreply, S}.
 handle_info(_, S) -> {noreply, S}.
 terminate(_, _) -> ok.
 
-%%% Internals
+%%% Internals — env
 
 default_model_id() ->
     application:get_env(hecate_embed, default_model_id, <<"intfloat/multilingual-e5-small">>).
@@ -70,5 +102,66 @@ default_dim() ->
 default_model_dir() ->
     application:get_env(hecate_embed, model_dir, "priv/models").
 
+default_backend() ->
+    application:get_env(hecate_embed, backend, nif).
+
+default_ollama_url() ->
+    application:get_env(hecate_embed, ollama_url, "http://127.0.0.1:11434/api/embeddings").
+
 to_charlist(B) when is_binary(B) -> binary_to_list(B);
 to_charlist(L) when is_list(L)   -> L.
+
+%%% Internals — ollama backend
+
+%% inets must be up before httpc can do anything. The app's `applications'
+%% list already includes it, so this is belt+braces for tests/scripts that
+%% start the model gen_server directly without booting hecate_embed.
+ensure_inets() ->
+    case application:ensure_all_started(inets) of
+        {ok, _} -> ok;
+        _       -> ok
+    end.
+
+-spec ollama_embed(#state{}, binary()) -> {ok, [float()]} | {error, term()}.
+ollama_embed(#state{ollama_url = Url, model_id = ModelId}, Text) when is_binary(Text) ->
+    Body = iolist_to_binary(json:encode(#{
+        <<"model">>  => ModelId,
+        <<"prompt">> => Text
+    })),
+    Request = {Url, [], "application/json", Body},
+    case httpc:request(post, Request, [{timeout, 60_000}], [{body_format, binary}]) of
+        {ok, {{_, 200, _}, _Headers, RespBody}} ->
+            decode_embedding(RespBody);
+        {ok, {{_, Code, _Reason}, _Headers, RespBody}} ->
+            {error, {http_status, Code, truncate(RespBody)}};
+        {error, Reason} ->
+            {error, {http_error, Reason}}
+    end.
+
+-spec ollama_embed_many(#state{}, [binary()]) -> {ok, [[float()]]} | {error, term()}.
+ollama_embed_many(_S, []) ->
+    {ok, []};
+ollama_embed_many(S, [T | Rest]) ->
+    case ollama_embed(S, T) of
+        {ok, V}        -> append_vec(V, ollama_embed_many(S, Rest));
+        {error, _} = E -> E
+    end.
+
+append_vec(V, {ok, Vs})     -> {ok, [V | Vs]};
+append_vec(_, {error, _} = E) -> E.
+
+decode_embedding(RespBody) ->
+    try json:decode(RespBody) of
+        #{<<"embedding">> := Vec} when is_list(Vec) ->
+            {ok, Vec};
+        Other ->
+            {error, {malformed_response, Other}}
+    catch
+        Class:Reason ->
+            {error, {decode_failed, Class, Reason}}
+    end.
+
+truncate(B) when is_binary(B), byte_size(B) > 200 ->
+    <<Head:200/binary, _/binary>> = B,
+    Head;
+truncate(B) -> B.
