@@ -1,0 +1,20 @@
+%% Config for the hecate_embed SERVICE (the release run in the container).
+%% ${VAR} placeholders resolve from the environment at boot (RELX_REPLACE_OS_VARS).
+%%
+%%   HECATE_EMBED_PORT       HTTP port the service listens on (integer, unquoted).
+%%   HECATE_EMBED_MODEL_DIR  Where the ONNX model is cached; baked into the image
+%%                           at build time so nothing is downloaded at runtime.
+[
+    {hecate_embed, [
+        %% In the service, embedding is in-process (real fastembed/ONNX NIF).
+        {backend,          nif},
+        {http_port,        ${HECATE_EMBED_PORT}},
+        {model_id,         <<"intfloat/multilingual-e5-small">>},
+        {default_dim,      384},
+        {model_dir,        "${HECATE_EMBED_MODEL_DIR}"}
+    ]},
+
+    {kernel, [
+        {logger_level, info}
+    ]}
+].
