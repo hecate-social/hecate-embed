@@ -11,6 +11,8 @@
     default_model/0,
     embed/1,
     embed/2,
+    embed_query/2,
+    embed_passage/2,
     embed_many/2,
     dim/1,
     model_id/1
@@ -50,6 +52,18 @@ embed(Text) when is_binary(Text) ->
 -spec embed(model(), binary()) -> {ok, vector()} | {error, term()}.
 embed(Model, Text) when is_binary(Text) ->
     hecate_embed_model:embed(Model, Text).
+
+%% @doc Embed search text (adds the model's query instruction prefix, e.g. e5's
+%% "query: "). Use for the recall side of asymmetric retrieval.
+-spec embed_query(model(), binary()) -> {ok, vector()} | {error, term()}.
+embed_query(Model, Text) when is_binary(Text) ->
+    hecate_embed_model:embed_query(Model, Text).
+
+%% @doc Embed a stored document (adds the model's passage instruction prefix,
+%% e.g. e5's "passage: "). Use for the store side of asymmetric retrieval.
+-spec embed_passage(model(), binary()) -> {ok, vector()} | {error, term()}.
+embed_passage(Model, Text) when is_binary(Text) ->
+    hecate_embed_model:embed_passage(Model, Text).
 
 -spec embed_many(model(), [binary()]) -> {ok, [vector()]} | {error, term()}.
 embed_many(Model, Texts) when is_list(Texts) ->

@@ -18,6 +18,8 @@
     start_link/2,
     stop/1,
     embed/2,
+    embed_query/2,
+    embed_passage/2,
     embed_many/2,
     dim/1,
     model_id/1,
@@ -41,6 +43,8 @@ start_link(Name, Opts) when is_atom(Name), is_map(Opts) ->
 stop(Ref) -> gen_server:stop(Ref).
 
 embed(Ref, Text) -> gen_server:call(Ref, {embed, Text}, 60_000).
+embed_query(Ref, Text) -> gen_server:call(Ref, {embed_query, Text}, 60_000).
+embed_passage(Ref, Text) -> gen_server:call(Ref, {embed_passage, Text}, 60_000).
 embed_many(Ref, Texts) -> gen_server:call(Ref, {embed_many, Texts}, 120_000).
 dim(Ref) -> gen_server:call(Ref, dim).
 model_id(Ref) -> gen_server:call(Ref, model_id).
@@ -72,6 +76,14 @@ handle_call({embed, Text}, _From, #state{backend = nif, handle = H} = S) ->
     {reply, hecate_embed_nif:embed(H, Text), S};
 handle_call({embed, Text}, _From, #state{backend = ollama} = S) ->
     {reply, ollama_embed(S, Text), S};
+
+%% Asymmetric retrieval: e5-family models need the query text and the stored
+%% passages embedded with different instruction prefixes. Apply the prefix, then
+%% delegate to the raw {embed, _} path above (either backend).
+handle_call({embed_query, Text}, From, #state{model_id = M} = S) ->
+    handle_call({embed, prepend(query_prefix(M), Text)}, From, S);
+handle_call({embed_passage, Text}, From, #state{model_id = M} = S) ->
+    handle_call({embed, prepend(passage_prefix(M), Text)}, From, S);
 
 handle_call({embed_many, Texts}, _From, #state{backend = nif, handle = H} = S) ->
     {reply, hecate_embed_nif:embed_many(H, Texts), S};
@@ -112,6 +124,23 @@ default_ollama_url() ->
 %% Erlang binary (not a charlist). Everything handed to the NIF must be binary.
 to_binary(B) when is_binary(B) -> B;
 to_binary(L) when is_list(L)   -> list_to_binary(L).
+
+%%% Internals — asymmetric-retrieval prefixes
+
+query_prefix(ModelId)   -> element(1, retrieval_prefixes(ModelId)).
+passage_prefix(ModelId) -> element(2, retrieval_prefixes(ModelId)).
+
+%% e5-family models (e.g. intfloat/multilingual-e5-small) require "query: " on
+%% the search text and "passage: " on stored documents for correct asymmetric
+%% retrieval. Models without a known convention get no prefix.
+retrieval_prefixes(ModelId) ->
+    case binary:match(ModelId, <<"e5">>) of
+        nomatch -> {<<>>, <<>>};
+        _Found  -> {<<"query: ">>, <<"passage: ">>}
+    end.
+
+prepend(<<>>, Text)   -> Text;
+prepend(Prefix, Text) -> <<Prefix/binary, Text/binary>>.
 
 %%% Internals — ollama backend
 
