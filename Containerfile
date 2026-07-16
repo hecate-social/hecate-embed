@@ -48,18 +48,15 @@ FROM docker.io/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 zlib1g libbrotli1 libzstd1 libstdc++6 libncurses6 \
         ca-certificates curl \
-        gawk \
     && rm -rf /var/lib/apt/lists/*
-# relx's RELX_REPLACE_OS_VARS boot substitution uses awk interval expressions
-# that trixie's default mawk rejects ("bad interval expression"); make awk gawk.
-RUN update-alternatives --set awk /usr/bin/gawk
 
 WORKDIR /app
 COPY --from=builder /build/_build/prod/rel/hecate_embed ./
 COPY --from=builder /models /models
 
 ENV HOME=/app
-ENV RELX_REPLACE_OS_VARS=true
+# Read directly by the app (os:getenv), not substituted into config, so no
+# RELX_REPLACE_OS_VARS / awk is involved at boot.
 ENV HECATE_EMBED_PORT=8477
 ENV HECATE_EMBED_MODEL_DIR=/models
 

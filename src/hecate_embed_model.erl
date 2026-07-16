@@ -121,8 +121,13 @@ default_model_id() ->
 default_dim() ->
     application:get_env(hecate_embed, default_dim, 384).
 
+%% Prefer the environment (HECATE_EMBED_MODEL_DIR) so the service configures the
+%% baked model path without RELX_REPLACE_OS_VARS; fall back to the app-env.
 default_model_dir() ->
-    application:get_env(hecate_embed, model_dir, "priv/models").
+    case os:getenv("HECATE_EMBED_MODEL_DIR") of
+        Dir when is_list(Dir), Dir =/= "" -> Dir;
+        _Unset -> application:get_env(hecate_embed, model_dir, "priv/models")
+    end.
 
 default_backend() ->
     application:get_env(hecate_embed, backend, nif).
