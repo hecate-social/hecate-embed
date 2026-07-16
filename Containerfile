@@ -40,7 +40,9 @@ RUN rebar3 as prod release
 #----------------------------------------------------------------------
 # Stage 2 — runtime: slim Debian + the release + the baked model
 #----------------------------------------------------------------------
-FROM docker.io/debian:bookworm-slim
+# trixie (not bookworm): must match the erlang:28 builder's glibc (2.38), or the
+# bundled ERTS fails at boot with `GLIBC_2.38 not found'.
+FROM docker.io/debian:trixie-slim
 # ONNX Runtime is static in the .so. These are the libs it still needs
 # dynamically (its hf-hub download client) plus what ERTS needs to run.
 RUN apt-get update && apt-get install -y --no-install-recommends \
