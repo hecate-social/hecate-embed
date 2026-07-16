@@ -59,7 +59,7 @@ init_backend(ollama, Name, ModelId, Dim, Opts) ->
                 backend = ollama, ollama_url = Url}};
 init_backend(nif, Name, ModelId, Dim, Opts) ->
     ModelDir = maps:get(model_dir, Opts, default_model_dir()),
-    init_nif_loaded(hecate_embed_nif:load(ModelId, Dim, to_charlist(ModelDir)),
+    init_nif_loaded(hecate_embed_nif:load(ModelId, Dim, to_binary(ModelDir)),
                     Name, ModelId, Dim).
 
 init_nif_loaded({ok, Handle}, Name, ModelId, Dim) ->
@@ -108,8 +108,10 @@ default_backend() ->
 default_ollama_url() ->
     application:get_env(hecate_embed, ollama_url, "http://127.0.0.1:11434/api/embeddings").
 
-to_charlist(B) when is_binary(B) -> binary_to_list(B);
-to_charlist(L) when is_list(L)   -> L.
+%% The NIF's model_id and model_dir are rustler `String`s, which decode from an
+%% Erlang binary (not a charlist). Everything handed to the NIF must be binary.
+to_binary(B) when is_binary(B) -> B;
+to_binary(L) when is_list(L)   -> list_to_binary(L).
 
 %%% Internals — ollama backend
 

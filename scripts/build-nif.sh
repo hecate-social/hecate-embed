@@ -5,7 +5,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
 cd "$ROOT/native/hecate_embed_nif"
-cargo build --release
+# CARGO_FEATURES selects the embedder backend. Empty (default) builds the
+# deterministic hash stub with no ONNX runtime; "real-embed" builds the real
+# fastembed/ONNX embedder (the consumer, e.g. hecate-spartan, sets this).
+cargo build --release ${CARGO_FEATURES:+--features "$CARGO_FEATURES"}
 
 mkdir -p "$ROOT/priv/lib"
 case "$(uname -s)" in

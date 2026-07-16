@@ -12,12 +12,12 @@ crate-type = ["cdylib"]
 [dependencies]
 rustler = "0.34"
 
-# Production build flips this on. Scaffold uses a deterministic
-# hash-based stub embedder so the rest of the stack can integrate
-# before the real ONNX runtime is in tree.
-#
-# fastembed = { version = "4", optional = true }
+# Real ONNX embedder, enabled by the `real-embed` feature. Off by default so
+# the library's own fast tests build the deterministic hash stub without pulling
+# ONNX Runtime; the consumer (hecate-spartan) builds with `--features real-embed`
+# for genuine multilingual embeddings.
+fastembed = { version = "5", optional = true }
 
 [features]
 default = []
-# real-embed = ["dep:fastembed"]
+real-embed = ["dep:fastembed"]

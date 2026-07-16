@@ -17,8 +17,9 @@ init() ->
     end,
     erlang:load_nif(filename:join([PrivDir, "lib", "libhecate_embed_nif"]), 0).
 
-%% @doc Load a model. Returns an opaque handle.
--spec load(binary(), pos_integer(), string()) -> {ok, reference()} | {error, term()}.
+%% @doc Load a model. Returns an opaque handle. model_id and model_dir are
+%% binaries (the Rust side decodes rustler `String` from an Erlang binary).
+-spec load(binary(), pos_integer(), binary()) -> {ok, reference()} | {error, term()}.
 load(_ModelId, _Dim, _ModelDir) -> ?NIF_NOT_LOADED.
 
 %% @doc Embed a single text.
