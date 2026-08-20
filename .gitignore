@@ -22,3 +22,5 @@ priv/models/tokenizer.json
 .idea/
 *.swp
 .DS_Store
+mix.lock
+rebar.lock
